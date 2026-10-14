@@ -11,6 +11,7 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Build
 import android.os.IBinder
+import android.os.Process
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.glauberoller.usbpinton.BridgeStatus
@@ -52,9 +53,11 @@ class AudioPlaybackService : Service() {
 
     private fun playStream(host: String) {
         try {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
             val connection = Socket()
             socket = connection
             connection.tcpNoDelay = true
+            connection.receiveBufferSize = 4096
             connection.connect(InetSocketAddress(host, AUDIO_PORT), CONNECT_TIMEOUT_MS)
             val input = DataInputStream(connection.getInputStream())
             val header = ByteArray(HEADER_SIZE)
@@ -91,8 +94,9 @@ class AudioPlaybackService : Service() {
                         .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                         .build()
                 )
-                .setBufferSizeInBytes(minimumBuffer * 4)
+                .setBufferSizeInBytes(minimumBuffer)
                 .setTransferMode(AudioTrack.MODE_STREAM)
+                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                 .build()
             audioTrack = track
             track.play()
@@ -101,7 +105,7 @@ class AudioPlaybackService : Service() {
             updateNotification(status)
 
             val frameBytes = channels * 2
-            val buffer = ByteArray(8192 + frameBytes)
+            val buffer = ByteArray(1024 + frameBytes)
             var pending = 0
             while (running) {
                 val read = input.read(buffer, pending, buffer.size - pending)

@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Channels;
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
 namespace UsbAudioController;
@@ -11,12 +12,13 @@ internal sealed class AudioStreamServer : IDisposable
 {
     private const int Port = 17051;
     private const int HeaderSize = 16;
+    private const int CaptureBufferMilliseconds = 10;
     private static readonly Guid PcmSubFormat = new("00000001-0000-0010-8000-00aa00389b71");
     private static readonly Guid FloatSubFormat = new("00000003-0000-0010-8000-00aa00389b71");
 
     private readonly Action<string> _statusChanged;
     private readonly ConcurrentDictionary<Guid, AudioClient> _clients = new();
-    private WasapiLoopbackCapture? _capture;
+    private WasapiCapture? _capture;
     private TcpListener? _listener;
     private CancellationTokenSource? _cancellation;
     private Task? _acceptTask;
@@ -34,7 +36,7 @@ internal sealed class AudioStreamServer : IDisposable
     {
         if (_capture is not null) return;
 
-        var capture = new WasapiLoopbackCapture();
+        var capture = new LowLatencyLoopbackCapture();
         try
         {
             ConfigureSourceFormat(capture.WaveFormat);
@@ -177,6 +179,7 @@ internal sealed class AudioStreamServer : IDisposable
             {
                 var socket = await listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
                 socket.NoDelay = true;
+                socket.SendBufferSize = 4096;
                 var id = Guid.NewGuid();
                 var client = new AudioClient(socket);
                 _clients[id] = client;
@@ -237,12 +240,23 @@ internal sealed class AudioStreamServer : IDisposable
     {
         public TcpClient Socket { get; } = socket;
         public Channel<byte[]> Frames { get; } = Channel.CreateBounded<byte[]>(
-            new BoundedChannelOptions(8) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.DropOldest });
+            new BoundedChannelOptions(1) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.DropOldest });
 
         public void Dispose()
         {
             Frames.Writer.TryComplete();
             Socket.Dispose();
         }
+    }
+
+    private sealed class LowLatencyLoopbackCapture : WasapiCapture
+    {
+        public LowLatencyLoopbackCapture()
+            : base(WasapiLoopbackCapture.GetDefaultLoopbackCaptureDevice(), true, CaptureBufferMilliseconds)
+        {
+        }
+
+        protected override AudioClientStreamFlags GetAudioClientStreamFlags() =>
+            AudioClientStreamFlags.Loopback;
     }
 }
