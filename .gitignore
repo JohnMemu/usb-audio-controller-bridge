@@ -1,0 +1,18 @@
+# Android local configuration and generated files
+android/local.properties
+android/.gradle/
+android/.idea/
+android/.kotlin/
+android/**/build/
+
+# .NET generated files
+windows/**/bin/
+windows/**/obj/
+
+# IDE and OS files
+.vs/
+.vscode/
+*.user
+*.suo
+Thumbs.db
+Desktop.ini
